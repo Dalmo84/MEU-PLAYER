@@ -89,19 +89,19 @@ const $=id=>document.getElementById(id);
 const ld=(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch(e){return d}};
 const sv=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}};
 // Pastas comuns
-const FOLDERS=[{id:'mp3',name:'🎵 MP3'},{id:'filmes',name:'🎬 Filmes'},{id:'chaves',name:'📺 Seriado Chaves'}];
+const FOLDERS=[{id:'mp3',name:'🎵 MP3'},{id:'filmes',name:'🎬 Filmes'},{id:'chaves',name:'📺 Seriado Chaves'},{id:'grafith',name:'🎸 Banda Grafith'}];
 // Pastas com senha (criptografadas)
-const LOCKED=[{id:'imagens',name:'🖼️ Imagens',store:'mp_vault_img'},{id:'cofre',name:'🗝️ Cofre',store:'mp_vault'}];
+const LOCKED=[{id:'imagens',name:'🖼️ Imagens',store:'mp_vault_img'},{id:'cofre',name:'🤖 SISTEMA',store:'mp_vault'}];
 const V={};LOCKED.forEach(l=>V[l.id]={arr:null,key:null,salt:null,store:l.store});
 const isL=id=>id in V;
 const nameOf=id=>(FOLDERS.concat(LOCKED).find(f=>f.id===id)||{}).name||'';
 let items=ld('mp_items',[]);
-let cur=-1,playSrc='main',view='all',shuffle=ld('mp_shuf',false),repeat=ld('mp_rep',true),speed=ld('mp_speed','1'),timer=null,el=null;
+let cur=-1,playSrc='main',playCtx='all',view='all',shuffle=ld('mp_shuf',false),repeat=ld('mp_rep',true),speed=ld('mp_speed','1'),timer=null,el=null;
 const icon={video:'🎞️',audio:'🎵',image:'🖼️'};
 const arrOf=s=>s==='main'?items:(V[s].arr||[]);
 const viewSrc=()=>isL(view)?view:'main';
 const curItem=()=>arrOf(playSrc)[cur];
-const inView=(it,s)=>s!=='main'?true:view==='fav'?!!it.fav:FOLDERS.some(f=>f.id===view)?it.folder===view:true;
+const inView=(it,s,v=view)=>s!=='main'?true:v==='fav'?!!it.fav:FOLDERS.some(f=>f.id===v)?it.folder===v:!it.folder;
 
 // ---- Pastas com senha (AES-GCM, chave derivada da senha) ----
 const b64=buf=>btoa(String.fromCharCode(...new Uint8Array(buf)));
@@ -190,8 +190,8 @@ function render(){
     l.appendChild(d);
   });
 }
-function play(i,s){
-  s=s||viewSrc();const arr=arrOf(s);
+function play(i,s,ctx){
+  s=s||viewSrc();playCtx=ctx||view;const arr=arrOf(s);
   if(i<0||i>=arr.length)return;
   clearTimeout(timer);playSrc=s;cur=i;const it=arr[i];
   $('playerCard').hidden=false;$('now').textContent=it.title;$('msg').textContent='';
@@ -207,17 +207,17 @@ function play(i,s){
 }
 function pool(){
   const arr=arrOf(playSrc);
-  const p=arr.map((it,i)=>i).filter(i=>inView(arr[i],playSrc));
+  const p=arr.map((it,i)=>i).filter(i=>inView(arr[i],playSrc,playCtx));
   return p.length?p:arr.map((_,i)=>i);
 }
 function next(){
   const p=pool();if(!p.length)return;
-  if(shuffle){play(p[Math.floor(Math.random()*p.length)],playSrc);return}
+  if(shuffle){play(p[Math.floor(Math.random()*p.length)],playSrc,playCtx);return}
   const k=p.indexOf(cur);
-  if(k>=0&&k<p.length-1)play(p[k+1],playSrc);
-  else if(repeat)play(p[0],playSrc);
+  if(k>=0&&k<p.length-1)play(p[k+1],playSrc,playCtx);
+  else if(repeat)play(p[0],playSrc,playCtx);
 }
-function prev(){const p=pool(),k=p.indexOf(cur);play(k>0?p[k-1]:p[p.length-1],playSrc)}
+function prev(){const p=pool(),k=p.indexOf(cur);play(k>0?p[k-1]:p[p.length-1],playSrc,playCtx)}
 function sync(){$('shuf').className=shuffle?'on':'sec';$('rep').className=repeat?'on':'sec';$('speed').value=speed}
 $('shuf').onclick=()=>{shuffle=!shuffle;sv('mp_shuf',shuffle);sync()};
 $('rep').onclick=()=>{repeat=!repeat;sv('mp_rep',repeat);sync()};
@@ -267,7 +267,8 @@ $('add').onclick=()=>{
   const title=$('title').value.trim()||decodeURIComponent(url.split('?')[0].split('/').pop())||'Sem título';
   const d=$('dest').value,to=(isL(d)&&V[d].arr)?d:'main';
   arrOf(to).unshift({title,url,type,fav:false,folder:to==='main'?d:''});persist(to);
-  $('title').value='';$('url').value='';play(0,to);
+  $('title').value='';$('url').value='';
+  const dv=to==='main'?(d||'all'):to;setView(dv);play(0,to,dv);
 };
 $('open').onclick=()=>{const it=curItem();if(it)window.open(it.url,'_blank')};
 
