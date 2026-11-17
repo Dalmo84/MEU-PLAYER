@@ -54,6 +54,7 @@ button.on{background:var(--ac);color:#fff}
     <button id="dl">⬇ Baixar</button>
     <button class="sec" id="open">↗ Abrir link</button>
   </div>
+  <button class="sec" id="mp3b">🎵 Mover para MP3</button>
   <button class="sec" id="mv">🔒 Mover para o cofre</button>
   <p class="mu" id="msg"></p>
 </div>
@@ -61,6 +62,7 @@ button.on{background:var(--ac);color:#fff}
 <div class="card">
   <input id="title" placeholder="Título (opcional)">
   <input id="url" placeholder="Cole o link (mp4, mp3, jpg, png...)" inputmode="url">
+  <label class="chk"><input type="checkbox" id="toMp3"> Salvar na pasta 🎵 MP3</label>
   <label class="chk" id="vaultChk" hidden><input type="checkbox" id="toVault"> Adicionar ao cofre 🔒</label>
   <div class="row">
     <select id="type">
@@ -77,6 +79,7 @@ button.on{background:var(--ac);color:#fff}
   <div class="tabs">
     <button id="tAll" class="on">Todos</button>
     <button id="tFav" class="sec">⭐ Favoritos</button>
+    <button id="tMp3" class="sec">🎵 MP3</button>
     <button id="tVault" class="sec">🔒 Cofre</button>
     <button id="tPlay" class="sec">▶ Tocar tudo</button>
   </div>
@@ -158,7 +161,8 @@ function fname(it){
   return last||it.title.replace(/[^\w\-]+/g,'_');
 }
 const persist=s=>s==='vault'?saveVault():sv('mp_items',items);
-function visible(){return arrOf(viewSrc()).map((it,i)=>({it,i})).filter(o=>view!=='fav'||o.it.fav)}
+const inView=(it,s)=>s!=='main'?true:view==='fav'?!!it.fav:view==='mp3'?it.folder==='mp3':true;
+function visible(){return arrOf(viewSrc()).map((it,i)=>({it,i})).filter(o=>inView(o.it,viewSrc()))}
 function render(){
   const l=$('list');l.innerHTML='';
   if(view==='vault'&&!vault){l.innerHTML='<p class="mu">🔒 Cofre bloqueado.</p>';return}
@@ -183,6 +187,7 @@ function play(i,s){
   clearTimeout(timer);playSrc=s;cur=i;const it=arr[i];
   $('playerCard').hidden=false;$('now').textContent=it.title;$('msg').textContent='';
   $('mv').textContent=s==='vault'?'🔓 Tirar do cofre':'🔒 Mover para o cofre';
+  $('mp3b').hidden=s==='vault';$('mp3b').textContent=it.folder==='mp3'?'🎵 Tirar do MP3':'🎵 Mover para MP3';
   const st=$('stage');st.innerHTML='';
   el=document.createElement(it.type==='image'?'img':it.type);
   el.src=it.url;
@@ -195,7 +200,7 @@ function play(i,s){
 }
 function pool(){
   const arr=arrOf(playSrc);
-  const p=arr.map((it,i)=>i).filter(i=>!(view==='fav'&&playSrc==='main')||arr[i].fav);
+  const p=arr.map((it,i)=>i).filter(i=>inView(arr[i],playSrc));
   return p.length?p:arr.map((_,i)=>i);
 }
 function next(){
@@ -214,18 +219,25 @@ $('next').onclick=next;$('prev').onclick=prev;
 $('fav').onclick=()=>{const it=curItem();if(!it)return;it.fav=!it.fav;persist(playSrc);$('fav').textContent=it.fav?'⭐ Favorito':'☆ Favoritar';render()};
 function setView(v){
   view=v;
-  $('tAll').className=v==='all'?'on':'sec';$('tFav').className=v==='fav'?'on':'sec';$('tVault').className=v==='vault'?'on':'sec';
+  $('tAll').className=v==='all'?'on':'sec';$('tFav').className=v==='fav'?'on':'sec';$('tVault').className=v==='vault'?'on':'sec';$('tMp3').className=v==='mp3'?'on':'sec';
+  $('toMp3').checked=v==='mp3';
   vaultUI();render();
 }
 $('tAll').onclick=()=>setView('all');
 $('tFav').onclick=()=>setView('fav');
 $('tVault').onclick=()=>setView('vault');
+$('tMp3').onclick=()=>setView('mp3');
+$('mp3b').onclick=()=>{
+  const it=curItem();if(!it||playSrc==='vault')return;
+  it.folder=it.folder==='mp3'?'':'mp3';persist('main');
+  $('mp3b').textContent=it.folder==='mp3'?'🎵 Tirar do MP3':'🎵 Mover para MP3';render();
+};
 $('unlock').onclick=unlock;
 $('pw').onkeydown=e=>{if(e.key==='Enter')unlock()};
 $('lockBtn').onclick=()=>{lock();$('vmsg').textContent='Cofre bloqueado.'};
 $('tPlay').onclick=()=>{
   const s=viewSrc();if(s==='vault'&&!vault)return;
-  const arr=arrOf(s),p=arr.map((_,i)=>i).filter(i=>view!=='fav'||arr[i].fav);
+  const arr=arrOf(s),p=arr.map((_,i)=>i).filter(i=>inView(arr[i],s));
   if(p.length)play(shuffle?p[Math.floor(Math.random()*p.length)]:p[0],s);
 };
 $('mv').onclick=async()=>{
@@ -240,7 +252,7 @@ $('add').onclick=async()=>{
   let type=$('type').value;if(type==='auto')type=detect(url);
   const title=$('title').value.trim()||decodeURIComponent(url.split('?')[0].split('/').pop())||'Sem título';
   const to=(vault&&$('toVault').checked)?'vault':'main';
-  arrOf(to).unshift({title,url,type,fav:false});persist(to);
+  arrOf(to).unshift({title,url,type,fav:false,folder:(to==='main'&&$('toMp3').checked)?'mp3':''});persist(to);
   $('title').value='';$('url').value='';play(0,to);
 };
 $('open').onclick=()=>{const it=curItem();if(it)window.open(it.url,'_blank')};
