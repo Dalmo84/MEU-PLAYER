@@ -54,16 +54,14 @@ button.on{background:var(--ac);color:#fff}
     <button id="dl">⬇ Baixar</button>
     <button class="sec" id="open">↗ Abrir link</button>
   </div>
-  <button class="sec" id="mp3b">🎵 Mover para MP3</button>
-  <button class="sec" id="mv">🔒 Mover para o cofre</button>
+  <select id="mvSel"></select>
   <p class="mu" id="msg"></p>
 </div>
 
 <div class="card">
   <input id="title" placeholder="Título (opcional)">
   <input id="url" placeholder="Cole o link (mp4, mp3, jpg, png...)" inputmode="url">
-  <label class="chk"><input type="checkbox" id="toMp3"> Salvar na pasta 🎵 MP3</label>
-  <label class="chk" id="vaultChk" hidden><input type="checkbox" id="toVault"> Adicionar ao cofre 🔒</label>
+  <select id="dest" title="Salvar em"></select>
   <div class="row">
     <select id="type">
       <option value="auto">Tipo: automático</option>
@@ -76,16 +74,10 @@ button.on{background:var(--ac);color:#fff}
 </div>
 
 <div class="card">
-  <div class="tabs">
-    <button id="tAll" class="on">Todos</button>
-    <button id="tFav" class="sec">⭐ Favoritos</button>
-    <button id="tMp3" class="sec">🎵 MP3</button>
-    <button id="tVault" class="sec">🔒 Cofre</button>
-    <button id="tPlay" class="sec">▶ Tocar tudo</button>
-  </div>
+  <div class="tabs" id="tabs"></div>
   <div id="vaultBox" hidden>
-    <input id="pw" type="password" placeholder="Senha do cofre" autocomplete="off">
-    <div class="row"><button id="unlock">Abrir cofre</button><button class="sec" id="lockBtn" hidden>Bloquear agora</button></div>
+    <input id="pw" type="password" placeholder="Senha da pasta" autocomplete="off">
+    <div class="row"><button id="unlock">Abrir pasta</button><button class="sec" id="lockBtn" hidden>Bloquear agora</button></div>
     <p class="mu" id="vmsg"></p>
   </div>
   <div id="list"></div>
@@ -96,57 +88,74 @@ button.on{background:var(--ac);color:#fff}
 const $=id=>document.getElementById(id);
 const ld=(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch(e){return d}};
 const sv=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}};
-let items=ld('mp_items',[]),vault=null,vkey=null,vsalt=null;
+// Pastas comuns
+const FOLDERS=[{id:'mp3',name:'🎵 MP3'},{id:'filmes',name:'🎬 Filmes'},{id:'chaves',name:'📺 Seriado Chaves'}];
+// Pastas com senha (criptografadas)
+const LOCKED=[{id:'imagens',name:'🖼️ Imagens',store:'mp_vault_img'},{id:'cofre',name:'🗝️ Cofre',store:'mp_vault'}];
+const V={};LOCKED.forEach(l=>V[l.id]={arr:null,key:null,salt:null,store:l.store});
+const isL=id=>id in V;
+const nameOf=id=>(FOLDERS.concat(LOCKED).find(f=>f.id===id)||{}).name||'';
+let items=ld('mp_items',[]);
 let cur=-1,playSrc='main',view='all',shuffle=ld('mp_shuf',false),repeat=ld('mp_rep',true),speed=ld('mp_speed','1'),timer=null,el=null;
 const icon={video:'🎞️',audio:'🎵',image:'🖼️'};
-const arrOf=s=>s==='vault'?(vault||[]):items;
-const viewSrc=()=>view==='vault'?'vault':'main';
+const arrOf=s=>s==='main'?items:(V[s].arr||[]);
+const viewSrc=()=>isL(view)?view:'main';
 const curItem=()=>arrOf(playSrc)[cur];
+const inView=(it,s)=>s!=='main'?true:view==='fav'?!!it.fav:FOLDERS.some(f=>f.id===view)?it.folder===view:true;
 
-// ---- Cofre (criptografia AES-GCM, chave derivada da senha) ----
+// ---- Pastas com senha (AES-GCM, chave derivada da senha) ----
 const b64=buf=>btoa(String.fromCharCode(...new Uint8Array(buf)));
 const unb64=t=>Uint8Array.from(atob(t),c=>c.charCodeAt(0));
 async function derive(pw,salt){
   const km=await crypto.subtle.importKey('raw',new TextEncoder().encode(pw),'PBKDF2',false,['deriveKey']);
   return crypto.subtle.deriveKey({name:'PBKDF2',salt,iterations:150000,hash:'SHA-256'},km,{name:'AES-GCM',length:256},false,['encrypt','decrypt']);
 }
-async function saveVault(){
-  if(!vkey)return;
+async function saveVault(id){
+  const v=V[id];if(!v.key)return;
   const iv=crypto.getRandomValues(new Uint8Array(12));
-  const ct=await crypto.subtle.encrypt({name:'AES-GCM',iv},vkey,new TextEncoder().encode(JSON.stringify(vault)));
-  sv('mp_vault',{s:b64(vsalt),i:b64(iv),d:b64(ct)});
+  const ct=await crypto.subtle.encrypt({name:'AES-GCM',iv},v.key,new TextEncoder().encode(JSON.stringify(v.arr)));
+  sv(v.store,{s:b64(v.salt),i:b64(iv),d:b64(ct)});
 }
 async function unlock(){
+  const id=view,v=V[id];if(!v)return;
   const pw=$('pw').value,m=$('vmsg');
-  if(!crypto.subtle){m.textContent='Cofre exige conexão segura (https).';return}
-  const rec=ld('mp_vault',null);
+  if(!crypto.subtle){m.textContent='Pasta com senha exige conexão segura (https).';return}
+  const rec=ld(v.store,null);
   try{
     if(!rec){
       if(pw.length<4){m.textContent='Escolha uma senha com pelo menos 4 caracteres.';return}
-      vsalt=crypto.getRandomValues(new Uint8Array(16));vkey=await derive(pw,vsalt);vault=[];await saveVault();
+      v.salt=crypto.getRandomValues(new Uint8Array(16));v.key=await derive(pw,v.salt);v.arr=[];await saveVault(id);
     }else{
-      vsalt=unb64(rec.s);const k=await derive(pw,vsalt);
+      v.salt=unb64(rec.s);const k=await derive(pw,v.salt);
       const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:unb64(rec.i)},k,unb64(rec.d));
-      vkey=k;vault=JSON.parse(new TextDecoder().decode(pt));
+      v.key=k;v.arr=JSON.parse(new TextDecoder().decode(pt));
     }
     $('pw').value='';m.textContent='';vaultUI();render();
   }catch(e){m.textContent='Senha incorreta.'}
 }
 function stop(){clearTimeout(timer);$('stage').innerHTML='';$('playerCard').hidden=true;cur=-1;el=null}
-function lock(){
-  if(playSrc==='vault')stop();
-  vault=null;vkey=null;vaultUI();render();
+function lock(id){
+  if(playSrc===id)stop();
+  V[id].arr=null;V[id].key=null;vaultUI();render();
 }
 function vaultUI(){
-  const open=!!vault,has=!!ld('mp_vault',null);
-  $('vaultBox').hidden=view!=='vault';
-  $('pw').hidden=open;$('unlock').hidden=open;$('lockBtn').hidden=!open;
-  $('unlock').textContent=has?'Abrir cofre':'Criar cofre';
-  if(view==='vault'&&!open&&!$('vmsg').textContent)$('vmsg').textContent=has?'':'Primeira vez: a senha que você digitar agora será a senha do cofre. Se esquecer, não há como recuperar.';
-  $('vaultChk').hidden=!open;
-  if(!open)$('toVault').checked=false;
+  const v=V[view];$('vaultBox').hidden=!v;
+  if(v){
+    const open=!!v.arr,has=!!ld(v.store,null);
+    $('pw').hidden=open;$('unlock').hidden=open;$('lockBtn').hidden=!open;
+    $('unlock').textContent=has?'Abrir pasta':'Criar senha da pasta';
+    if(!open&&!has&&!$('vmsg').textContent)$('vmsg').textContent='Primeira vez: a senha que você digitar agora será a senha desta pasta. Se esquecer, não há como recuperar.';
+  }
+  refreshSelects();
 }
-document.addEventListener('visibilitychange',()=>{if(document.hidden&&vault)lock()});
+function refreshSelects(){
+  const d=$('dest');
+  d.innerHTML='<option value="">📁 Salvar em: sem pasta</option>'
+    +FOLDERS.map(f=>`<option value="${f.id}">${f.name}</option>`).join('')
+    +LOCKED.filter(l=>V[l.id].arr).map(l=>`<option value="${l.id}">${l.name} 🔒</option>`).join('');
+  d.value=[...d.options].some(o=>o.value===view)?view:'';
+}
+document.addEventListener('visibilitychange',()=>{if(document.hidden)LOCKED.forEach(l=>{if(V[l.id].arr)lock(l.id)})});
 
 // ---- Player ----
 function detect(u){
@@ -160,18 +169,18 @@ function fname(it){
   const last=decodeURIComponent(it.url.split('?')[0].split('/').pop()||'');
   return last||it.title.replace(/[^\w\-]+/g,'_');
 }
-const persist=s=>s==='vault'?saveVault():sv('mp_items',items);
-const inView=(it,s)=>s!=='main'?true:view==='fav'?!!it.fav:view==='mp3'?it.folder==='mp3':true;
+const persist=s=>s==='main'?sv('mp_items',items):saveVault(s);
 function visible(){return arrOf(viewSrc()).map((it,i)=>({it,i})).filter(o=>inView(o.it,viewSrc()))}
 function render(){
   const l=$('list');l.innerHTML='';
-  if(view==='vault'&&!vault){l.innerHTML='<p class="mu">🔒 Cofre bloqueado.</p>';return}
+  if(isL(view)&&!V[view].arr){l.innerHTML='<p class="mu">🔒 Pasta bloqueada.</p>';return}
   const v=visible();
   if(!v.length){l.innerHTML='<p class="mu">Nada por aqui ainda.</p>';return}
   v.forEach(({it,i})=>{
     const d=document.createElement('div');d.className='item'+(i===cur&&playSrc===viewSrc()?' cur':'');
-    d.innerHTML=`<span>${icon[it.type]}</span><b></b><span>${it.fav?'⭐':''}</span><button class="x" title="Remover">×</button>`;
+    d.innerHTML=`<span>${icon[it.type]}</span><b></b><span class="tag"></span><span>${it.fav?'⭐':''}</span><button class="x" title="Remover">×</button>`;
     d.querySelector('b').textContent=it.title;
+    d.querySelector('.tag').textContent=(viewSrc()==='main'&&(view==='all'||view==='fav')&&it.folder)?nameOf(it.folder):'';
     d.onclick=()=>play(i);
     d.querySelector('.x').onclick=e=>{
       e.stopPropagation();const s=viewSrc();
@@ -186,8 +195,6 @@ function play(i,s){
   if(i<0||i>=arr.length)return;
   clearTimeout(timer);playSrc=s;cur=i;const it=arr[i];
   $('playerCard').hidden=false;$('now').textContent=it.title;$('msg').textContent='';
-  $('mv').textContent=s==='vault'?'🔓 Tirar do cofre':'🔒 Mover para o cofre';
-  $('mp3b').hidden=s==='vault';$('mp3b').textContent=it.folder==='mp3'?'🎵 Tirar do MP3':'🎵 Mover para MP3';
   const st=$('stage');st.innerHTML='';
   el=document.createElement(it.type==='image'?'img':it.type);
   el.src=it.url;
@@ -217,42 +224,49 @@ $('rep').onclick=()=>{repeat=!repeat;sv('mp_rep',repeat);sync()};
 $('speed').onchange=e=>{speed=e.target.value;sv('mp_speed',speed);if(el&&el.playbackRate!==undefined)el.playbackRate=+speed};
 $('next').onclick=next;$('prev').onclick=prev;
 $('fav').onclick=()=>{const it=curItem();if(!it)return;it.fav=!it.fav;persist(playSrc);$('fav').textContent=it.fav?'⭐ Favorito':'☆ Favoritar';render()};
-function setView(v){
-  view=v;
-  $('tAll').className=v==='all'?'on':'sec';$('tFav').className=v==='fav'?'on':'sec';$('tVault').className=v==='vault'?'on':'sec';$('tMp3').className=v==='mp3'?'on':'sec';
-  $('toMp3').checked=v==='mp3';
-  vaultUI();render();
+
+// ---- Abas ----
+function buildTabs(){
+  const t=$('tabs');t.innerHTML='';
+  [{id:'all',name:'Todos'},{id:'fav',name:'⭐ Favoritos'}].concat(FOLDERS,LOCKED).forEach(f=>{
+    const b=document.createElement('button');
+    b.className=f.id===view?'on':'sec';b.textContent=f.name+(isL(f.id)?' 🔒':'');
+    b.onclick=()=>setView(f.id);t.appendChild(b);
+  });
+  const p=document.createElement('button');p.className='sec';p.textContent='▶ Tocar tudo';p.onclick=playAll;t.appendChild(p);
 }
-$('tAll').onclick=()=>setView('all');
-$('tFav').onclick=()=>setView('fav');
-$('tVault').onclick=()=>setView('vault');
-$('tMp3').onclick=()=>setView('mp3');
-$('mp3b').onclick=()=>{
-  const it=curItem();if(!it||playSrc==='vault')return;
-  it.folder=it.folder==='mp3'?'':'mp3';persist('main');
-  $('mp3b').textContent=it.folder==='mp3'?'🎵 Tirar do MP3':'🎵 Mover para MP3';render();
-};
-$('unlock').onclick=unlock;
-$('pw').onkeydown=e=>{if(e.key==='Enter')unlock()};
-$('lockBtn').onclick=()=>{lock();$('vmsg').textContent='Cofre bloqueado.'};
-$('tPlay').onclick=()=>{
-  const s=viewSrc();if(s==='vault'&&!vault)return;
+function setView(v){view=v;$('vmsg').textContent='';buildTabs();vaultUI();render()}
+function playAll(){
+  const s=viewSrc();if(isL(s)&&!V[s].arr)return;
   const arr=arrOf(s),p=arr.map((_,i)=>i).filter(i=>inView(arr[i],s));
   if(p.length)play(shuffle?p[Math.floor(Math.random()*p.length)]:p[0],s);
+}
+$('unlock').onclick=unlock;
+$('pw').onkeydown=e=>{if(e.key==='Enter')unlock()};
+$('lockBtn').onclick=()=>{lock(view);$('vmsg').textContent='Pasta bloqueada.'};
+
+// ---- Mover entre pastas ----
+$('mvSel').innerHTML='<option value="">📁 Mover para...</option><option value="none">Sem pasta</option>'
+  +FOLDERS.map(f=>`<option value="${f.id}">${f.name}</option>`).join('')
+  +LOCKED.map(l=>`<option value="${l.id}">${l.name} 🔒</option>`).join('');
+$('mvSel').onchange=async e=>{
+  const to=e.target.value;e.target.value='';
+  const it=curItem();if(!it||!to||to===playSrc)return;
+  if(isL(to)&&!V[to].arr){$('msg').textContent='Abra a pasta '+nameOf(to)+' primeiro (na aba dela) para mover itens para lá.';return}
+  if(!isL(to)&&playSrc==='main'){it.folder=to==='none'?'':to;persist('main');render();$('msg').textContent='Movido ✔';return}
+  const from=playSrc;
+  arrOf(from).splice(cur,1);
+  if(isL(to)){it.folder='';V[to].arr.unshift(it)}else{it.folder=to==='none'?'':to;items.unshift(it)}
+  persist('main');
+  for(const id of [from,to])if(isL(id))await saveVault(id);
+  stop();render();
 };
-$('mv').onclick=async()=>{
-  const it=curItem();if(!it)return;
-  if(!vault){$('msg').textContent='Abra o cofre primeiro (aba 🔒 Cofre) para mover itens.';return}
-  const from=playSrc,to=from==='vault'?'main':'vault';
-  arrOf(from).splice(cur,1);arrOf(to).unshift(it);
-  persist('main');await saveVault();stop();render();
-};
-$('add').onclick=async()=>{
+$('add').onclick=()=>{
   const url=$('url').value.trim();if(!url)return;
   let type=$('type').value;if(type==='auto')type=detect(url);
   const title=$('title').value.trim()||decodeURIComponent(url.split('?')[0].split('/').pop())||'Sem título';
-  const to=(vault&&$('toVault').checked)?'vault':'main';
-  arrOf(to).unshift({title,url,type,fav:false,folder:(to==='main'&&$('toMp3').checked)?'mp3':''});persist(to);
+  const d=$('dest').value,to=(isL(d)&&V[d].arr)?d:'main';
+  arrOf(to).unshift({title,url,type,fav:false,folder:to==='main'?d:''});persist(to);
   $('title').value='';$('url').value='';play(0,to);
 };
 $('open').onclick=()=>{const it=curItem();if(it)window.open(it.url,'_blank')};
@@ -287,7 +301,7 @@ $('dl').onclick=async()=>{
     $('msg').textContent='O servidor bloqueou o download direto. O arquivo abriu em outra aba: use "Salvar como" ou segure o dedo sobre ele.';
   }
 };
-sync();vaultUI();render();
+sync();buildTabs();vaultUI();render();
 </script>
 </body>
 </html>
