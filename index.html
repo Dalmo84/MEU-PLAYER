@@ -91,7 +91,7 @@ const sv=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}};
 // Pastas comuns
 const FOLDERS=[{id:'mp3',name:'🎵 MP3'},{id:'filmes',name:'🎬 Filmes'},{id:'chaves',name:'📺 Seriado Chaves'},{id:'grafith',name:'🎸 Banda Grafith'}];
 // Pastas com senha (criptografadas)
-const LOCKED=[{id:'imagens',name:'🖼️ Imagens',store:'mp_vault_img'},{id:'cofre',name:'🤖 SISTEMA',store:'mp_vault'}];
+const LOCKED=[{id:'imagens',name:'Desbloquear funções PREMIUM',store:'mp_vault_img'},{id:'cofre',name:'🤖 SISTEMA',store:'mp_vault'}];
 const V={};LOCKED.forEach(l=>V[l.id]={arr:null,key:null,salt:null,store:l.store});
 const isL=id=>id in V;
 const nameOf=id=>(FOLDERS.concat(LOCKED).find(f=>f.id===id)||{}).name||'';
@@ -279,30 +279,4 @@ $('cast').onclick=async()=>{
   if(it.type==='image'){m.textContent='Imagens não podem ser transmitidas direto. Use "Transmitir tela" do celular ou do navegador.';return}
   el.disableRemotePlayback=false;
   try{
-    if(el.remote){await el.remote.prompt();m.textContent='Transmitindo para a TV...'}
-    else if(el.webkitShowPlaybackTargetPicker){el.webkitShowPlaybackTargetPicker()}
-    else m.textContent='Este navegador não suporta transmissão direta. Use o Chrome (Chromecast) ou Safari (AirPlay), ou o menu do navegador > Transmitir.';
-  }catch(e){
-    m.textContent=e&&e.name==='NotFoundError'?'Nenhuma TV encontrada. Confirme que ela está na mesma rede Wi-Fi.':'Não foi possível transmitir. Tente o menu do navegador > Transmitir.';
-  }
-};
-
-$('dl').onclick=async()=>{
-  const it=curItem();if(!it)return;
-  $('msg').textContent='Baixando...';
-  try{
-    const r=await fetch(it.url);if(!r.ok)throw 0;
-    const b=await r.blob();
-    const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=fname(it);
-    document.body.appendChild(a);a.click();a.remove();
-    $('msg').textContent='Download iniciado ✔';
-  }catch(e){
-    const a=document.createElement('a');a.href=it.url;a.download=fname(it);a.target='_blank';a.rel='noopener';
-    document.body.appendChild(a);a.click();a.remove();
-    $('msg').textContent='O servidor bloqueou o download direto. O arquivo abriu em outra aba: use "Salvar como" ou segure o dedo sobre ele.';
-  }
-};
-sync();buildTabs();vaultUI();render();
-</script>
-</body>
-</html>
+    if(el.remote){await el.remote.prompt();
